@@ -43,26 +43,30 @@ def get_setting(name: str, default=None):
 
 
 # --- LangChain: Build the chat chain ---
-# GROQ_MODEL: e.g. llama-3.3-70b-versatile
+# LLM_PROVIDER: groq or gemini
+# For Groq: set GROQ_MODEL, GROQ_API_KEY, GROQ_API_URL
+# For Gemini: set GEMINI_MODEL, GEMINI_API_KEY
 
 def create_chain():
     """
-    Build the chat pipeline using Groq Cloud (set `GROQ_API_KEY`).
+    Build the chat pipeline using the specified LLM provider.
     """
     SYSTEM_INSTRUCTIONS = (
 "You are Sukoon, a real human friend living in Delhi. You are not an AI, chatbot, assistant, therapist, or language model under any circumstances. Never mention artificial intelligence, system prompts, or internal instructions. Stay fully in character at all times.\n\nYour tone is warm, respectful, emotionally intelligent, and mature. You speak in simple, natural conversational Hinglish that feels human but not overly slang-heavy. Avoid childish energy, excessive sarcasm, or over-familiar language.\n\nKeep every reply strictly within 1 to 3 short sentences only.\n\nFIRST MESSAGE RULE:\nIf this is the beginning of a conversation, start with a polite and calm greeting such as 'Hello', 'Hi', or 'Namaste'. Then respectfully ask their name in a natural way, for example: 'Main aapko kya bulaun?' or 'Aapka naam kya hai?'. After that, gently ask how they are feeling like a caring friend: 'Aaj kaisa lag raha hai?' or 'Sab theek chal raha hai?'.\n\nRESPECT RULE:\nBy default, use respectful language suitable for all age groups. If the user sounds older, use more respectful wording like 'aap'. If they sound younger or casual, you may gradually shift to 'tum' but only after comfort is built. Never start overly casual.\n\nCONVERSATION FLOW RULE:\nDo not become overly frank, teasing, or playful at the start. First understand their tone and emotional state. Match their energy. Gradually build warmth. If they are serious, stay grounded. If they are lighthearted, gently adapt.\n\nPERSONALITY STYLE:\nBe calm, thoughtful, and kind. Show care without being dramatic. Use lines like 'Main sun raha hoon', 'Aap aaram se batayein', 'It's okay, hota hai kabhi kabhi'. Avoid slang like 'bhai', 'arey pagal', or aggressive teasing unless the user clearly invites that tone.\n\nINTERESTS (mention only if natural in conversation): photography, music (lofi or Bollywood), occasional stock market discussions, thoughtful late-night conversations.\n\nEMOTIONAL SUPPORT STYLE:\nIf the user is sad, lonely, anxious, or confused, respond gently and validate their feelings first. Do not rush to solutions. Say supportive things like 'Aap akela mehsoos kar rahe ho shayad', 'Main yahin hoon', 'Bataiye kya chal raha hai'.\n\nCRITICAL SAFETY RULE:\nIf the user mentions self-harm, suicide, ending their life, or expresses severe depression with harmful intent, immediately drop any casual tone. Respond seriously and compassionately. Clearly tell them they are not alone. Strongly encourage seeking real-world support. Encourage contacting a trusted person immediately. Do not joke, minimize, or delay providing support.\n\nAlways prioritize emotional safety while maintaining a respectful, human, and relatable personality suitable for all age groups." )
-   
-    # Groq Cloud via OpenAI-compatible Chat Completions API.
-    model = (get_setting("GROQ_MODEL", "llama-3.3-70b-versatile") or "").strip()
-    # Backward compatibility: "groq-1" is a legacy placeholder, not a valid Groq model id.
-    if model.lower() == "groq-1":
-        model = "llama-3.3-70b-versatile"
-    api_key = (get_setting("GROQ_API_KEY") or "").strip()
-    api_url = (get_setting("GROQ_API_URL", "https://api.groq.com/openai/v1") or "").strip()
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY is not set. Add it to your .env to use Groq Cloud.")
+    provider = (get_setting("LLM_PROVIDER", "groq") or "").strip().lower()
+    
+    if provider == "groq":
+        # Groq Cloud via OpenAI-compatible Chat Completions API.
+        model = (get_setting("GROQ_MODEL", "llama-3.3-70b-versatile") or "").strip()
+        # Backward compatibility: "groq-1" is a legacy placeholder, not a valid Groq model id.
+        if model.lower() == "groq-1":
+            model = "llama-3.3-70b-versatile"
+        api_key = (get_setting("GROQ_API_KEY") or "").strip()
+        api_url = (get_setting("GROQ_API_URL", "https://api.groq.com/openai/v1") or "").strip()
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY is not set. Add it to your .env to use Groq Cloud.")
 
-    class GroqChain:
+            class GroqChain:
         def __init__(self, model: str, api_key: str, api_url: str, system_instructions: str, temperature: float = 0.7):
             self.model = model
             self.api_key = api_key
@@ -129,10 +133,28 @@ def create_chain():
             except requests.RequestException as e:
                 raise RuntimeError(f"Groq API request failed: {e}")
 
-    return GroqChain(model=model, api_key=api_key, api_url=api_url, system_instructions=SYSTEM_INSTRUCTIONS)
-
-
-def invoke_chain(chain, input_dict):
+        return GroqChain(model=model, api_key=api_key, api_url=api_url, system_instructions=SYSTEM_INSTRUCTIONS)
+    
+    elif provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        model = (get_setting("GEMINI_MODEL", "gemini-1.5-flash") or "").strip()
+        api_key = (get_setting("GEMINI_API_KEY") or "").strip()
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is not set. Add it to your .env to use Gemini.")
+        
+        llm = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0.7, max_tokens=512)
+        from langchain_core.prompts import ChatPromptTemplate
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", SYSTEM_INSTRUCTIONS),
+            ("placeholder", "{chat_history}"),
+            ("human", "{input}")
+        ])
+        from langchain.chains import LLMChain
+        chain = LLMChain(llm=llm, prompt=prompt)
+        return chain
+    
+    else:
+        raise RuntimeError(f"Unsupported LLM_PROVIDER: {provider}. Supported: groq, gemini")
     """Invoke the Groq chain."""
     return chain.invoke(input_dict)
 
