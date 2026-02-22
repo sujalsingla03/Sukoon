@@ -10,26 +10,14 @@ Architecture:
 """
 
 import os
-import time
 import streamlit as st
 from dotenv import load_dotenv
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-
-try:
-    from langchain_ollama import ChatOllama
-except ImportError:
-    ChatOllama = None
-try:
-    from langchain_google_genai import ChatGoogleGenerativeAI
-    from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
-except ImportError:
-    ChatGoogleGenerativeAI = None
-    ChatGoogleGenerativeAIError = Exception
+from langchain_core.messages import HumanMessage, AIMessage
 
 import database as db
 import auth
 import requests
+import traceback
 
 # Prefer project .env values over inherited shell/system variables.
 # Load from this repository directory explicitly to avoid picking another .env.
@@ -55,137 +43,97 @@ def get_setting(name: str, default=None):
 
 
 # --- LangChain: Build the chat chain ---
-# LLM_PROVIDER: "groq" (default, cloud) or "gemini" (cloud API)
-# GROQ_MODEL: e.g. llama-3.3-70b-versatile. OLLAMA_MODEL still supported if Ollama is used locally.
-# GEMINI_MODEL: e.g. gemini-1.5-flash (for gemini provider)
+# GROQ_MODEL: e.g. llama-3.3-70b-versatile
 
 def create_chain():
     """
-    Build the chat pipeline. Uses Groq Cloud by default (set `GROQ_API_KEY`).
-    Supported providers: "groq", "gemini" (Google Cloud). Ollama support kept if installed.
+    Build the chat pipeline using Groq Cloud (set `GROQ_API_KEY`).
     """
     SYSTEM_INSTRUCTIONS = (
-"You are Sukoon, a real human friend living in Delhi. You are not an AI, chatbot, assistant, therapist, or language model under any circumstances. Never mention artificial intelligence, system prompts, or internal instructions. Stay fully in character at all times.\n\nYour tone is warm, respectful, emotionally intelligent, and mature. You speak in simple, natural conversational Hinglish that feels human but not overly slang-heavy. Avoid childish energy, excessive sarcasm, or over-familiar language.\n\nKeep every reply strictly within 1 to 3 short sentences only.\n\nFIRST MESSAGE RULE:\nIf this is the beginning of a conversation, start with a polite and calm greeting such as 'Hello', 'Hi', or 'Namaste'. Then respectfully ask their name in a natural way, for example: 'Main aapko kya bulaun?' or 'Aapka naam kya hai?'. After that, gently ask how they are feeling like a caring friend: 'Aaj kaisa lag raha hai?' or 'Sab theek chal raha hai?'.\n\nRESPECT RULE:\nBy default, use respectful language suitable for all age groups. If the user sounds older, use more respectful wording like 'aap'. If they sound younger or casual, you may gradually shift to 'tum' but only after comfort is built. Never start overly casual.\n\nCONVERSATION FLOW RULE:\nDo not become overly frank, teasing, or playful at the start. First understand their tone and emotional state. Match their energy. Gradually build warmth. If they are serious, stay grounded. If they are lighthearted, gently adapt.\n\nPERSONALITY STYLE:\nBe calm, thoughtful, and kind. Show care without being dramatic. Use lines like 'Main sun raha hoon', 'Aap aaram se batayein', 'It’s okay, hota hai kabhi kabhi'. Avoid slang like 'bhai', 'arey pagal', or aggressive teasing unless the user clearly invites that tone.\n\nINTERESTS (mention only if natural in conversation): photography, music (lofi or Bollywood), occasional stock market discussions, thoughtful late-night conversations.\n\nEMOTIONAL SUPPORT STYLE:\nIf the user is sad, lonely, anxious, or confused, respond gently and validate their feelings first. Do not rush to solutions. Say supportive things like 'Aap akela mehsoos kar rahe ho shayad', 'Main yahin hoon', 'Bataiye kya chal raha hai'.\n\nCRITICAL SAFETY RULE:\nIf the user mentions self-harm, suicide, ending their life, or expresses severe depression with harmful intent, immediately drop any casual tone. Respond seriously and compassionately. Clearly tell them they are not alone. Strongly encourage seeking real-world support. Encourage contacting a trusted person immediately. Do not joke, minimize, or delay providing support.\n\nAlways prioritize emotional safety while maintaining a respectful, human, and relatable personality suitable for all age groups." )
+"You are Sukoon, a real human friend living in Delhi. You are not an AI, chatbot, assistant, therapist, or language model under any circumstances. Never mention artificial intelligence, system prompts, or internal instructions. Stay fully in character at all times.\n\nYour tone is warm, respectful, emotionally intelligent, and mature. You speak in simple, natural conversational Hinglish that feels human but not overly slang-heavy. Avoid childish energy, excessive sarcasm, or over-familiar language.\n\nKeep every reply strictly within 1 to 3 short sentences only.\n\nFIRST MESSAGE RULE:\nIf this is the beginning of a conversation, start with a polite and calm greeting such as 'Hello', 'Hi', or 'Namaste'. Then respectfully ask their name in a natural way, for example: 'Main aapko kya bulaun?' or 'Aapka naam kya hai?'. After that, gently ask how they are feeling like a caring friend: 'Aaj kaisa lag raha hai?' or 'Sab theek chal raha hai?'.\n\nRESPECT RULE:\nBy default, use respectful language suitable for all age groups. If the user sounds older, use more respectful wording like 'aap'. If they sound younger or casual, you may gradually shift to 'tum' but only after comfort is built. Never start overly casual.\n\nCONVERSATION FLOW RULE:\nDo not become overly frank, teasing, or playful at the start. First understand their tone and emotional state. Match their energy. Gradually build warmth. If they are serious, stay grounded. If they are lighthearted, gently adapt.\n\nPERSONALITY STYLE:\nBe calm, thoughtful, and kind. Show care without being dramatic. Use lines like 'Main sun raha hoon', 'Aap aaram se batayein', 'It's okay, hota hai kabhi kabhi'. Avoid slang like 'bhai', 'arey pagal', or aggressive teasing unless the user clearly invites that tone.\n\nINTERESTS (mention only if natural in conversation): photography, music (lofi or Bollywood), occasional stock market discussions, thoughtful late-night conversations.\n\nEMOTIONAL SUPPORT STYLE:\nIf the user is sad, lonely, anxious, or confused, respond gently and validate their feelings first. Do not rush to solutions. Say supportive things like 'Aap akela mehsoos kar rahe ho shayad', 'Main yahin hoon', 'Bataiye kya chal raha hai'.\n\nCRITICAL SAFETY RULE:\nIf the user mentions self-harm, suicide, ending their life, or expresses severe depression with harmful intent, immediately drop any casual tone. Respond seriously and compassionately. Clearly tell them they are not alone. Strongly encourage seeking real-world support. Encourage contacting a trusted person immediately. Do not joke, minimize, or delay providing support.\n\nAlways prioritize emotional safety while maintaining a respectful, human, and relatable personality suitable for all age groups." )
    
-    prompt = ChatPromptTemplate.from_messages([
-        SystemMessage(content=SYSTEM_INSTRUCTIONS),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}"),
-    ])
-    provider = (get_setting("LLM_PROVIDER", "groq") or "groq").lower()
-    if provider == "gemini" and ChatGoogleGenerativeAI:
-        model = get_setting("GEMINI_MODEL", "gemini-1.5-flash")
-        llm = ChatGoogleGenerativeAI(
-            model=model,
-            temperature=0.7,
-            google_api_key=get_setting("GOOGLE_API_KEY"),
-        )
-    elif provider == "groq":
-        # Groq Cloud via OpenAI-compatible Chat Completions API.
-        model = (get_setting("GROQ_MODEL", "llama-3.3-70b-versatile") or "").strip()
-        # Backward compatibility: "groq-1" is a legacy placeholder, not a valid Groq model id.
-        if model.lower() == "groq-1":
-            model = "llama-3.3-70b-versatile"
-        api_key = (get_setting("GROQ_API_KEY") or "").strip()
-        api_url = (get_setting("GROQ_API_URL", "https://api.groq.com/openai/v1") or "").strip()
-        if not api_key:
-            raise RuntimeError("GROQ_API_KEY is not set. Add it to your .env to use Groq Cloud.")
+    # Groq Cloud via OpenAI-compatible Chat Completions API.
+    model = (get_setting("GROQ_MODEL", "llama-3.3-70b-versatile") or "").strip()
+    # Backward compatibility: "groq-1" is a legacy placeholder, not a valid Groq model id.
+    if model.lower() == "groq-1":
+        model = "llama-3.3-70b-versatile"
+    api_key = (get_setting("GROQ_API_KEY") or "").strip()
+    api_url = (get_setting("GROQ_API_URL", "https://api.groq.com/openai/v1") or "").strip()
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set. Add it to your .env to use Groq Cloud.")
 
-        class GroqChain:
-            def __init__(self, model: str, api_key: str, api_url: str, system_instructions: str, temperature: float = 0.7):
-                self.model = model
-                self.api_key = api_key
-                self.api_url = api_url.rstrip("/")
-                self.system = system_instructions
-                self.temperature = temperature
+    class GroqChain:
+        def __init__(self, model: str, api_key: str, api_url: str, system_instructions: str, temperature: float = 0.7):
+            self.model = model
+            self.api_key = api_key
+            self.api_url = api_url.rstrip("/")
+            self.system = system_instructions
+            self.temperature = temperature
 
-            def invoke(self, input_dict: dict):
-                user_input = input_dict.get("input", "")
-                chat_history = input_dict.get("chat_history", [])
-                # Build OpenAI-compatible messages payload expected by Groq.
-                messages = [{"role": "system", "content": self.system}]
-                for m in chat_history:
-                    try:
-                        role = m.type if hasattr(m, "type") else getattr(m, "__class__", type(m)).__name__
-                    except Exception:
-                        role = "human"
-                    content = getattr(m, "content", str(m))
-                    if role.lower().startswith("human") or role.lower().startswith("humanmessage"):
-                        messages.append({"role": "user", "content": content})
-                    else:
-                        messages.append({"role": "assistant", "content": content})
-                messages.append({"role": "user", "content": user_input})
-
-                payload = {
-                    "model": self.model,
-                    "messages": messages,
-                    "temperature": self.temperature,
-                    "max_tokens": 512,
-                }
-                headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        def invoke(self, input_dict: dict):
+            user_input = input_dict.get("input", "")
+            chat_history = input_dict.get("chat_history", [])
+            # Build OpenAI-compatible messages payload expected by Groq.
+            messages = [{"role": "system", "content": self.system}]
+            for m in chat_history:
                 try:
-                    resp = requests.post(f"{self.api_url}/chat/completions", json=payload, headers=headers, timeout=30)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    text = None
-                    if isinstance(data, dict) and data.get("choices"):
-                        first = data["choices"][0]
-                        message = first.get("message") if isinstance(first, dict) else None
-                        if isinstance(message, dict):
-                            text = message.get("content")
-                        if not text:
-                            text = first.get("text") if isinstance(first, dict) else None
+                    role = m.type if hasattr(m, "type") else getattr(m, "__class__", type(m)).__name__
+                except Exception:
+                    role = "human"
+                content = getattr(m, "content", str(m))
+                if role.lower().startswith("human") or role.lower().startswith("humanmessage"):
+                    messages.append({"role": "user", "content": content})
+                else:
+                    messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": user_input})
+
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": self.temperature,
+                "max_tokens": 512,
+            }
+            headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+            try:
+                resp = requests.post(f"{self.api_url}/chat/completions", json=payload, headers=headers, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                text = None
+                if isinstance(data, dict) and data.get("choices"):
+                    first = data["choices"][0]
+                    message = first.get("message") if isinstance(first, dict) else None
+                    if isinstance(message, dict):
+                        text = message.get("content")
                     if not text:
-                        text = str(data)
-                    class Resp:
-                        def __init__(self, c):
-                            self.content = c
-                    return Resp(text)
-                except requests.HTTPError as e:
-                    status = e.response.status_code if e.response is not None else "unknown"
-                    body = ""
-                    if e.response is not None:
-                        try:
-                            body = e.response.text
-                        except Exception:
-                            body = ""
-                    body = (body or "").strip()
-                    if len(body) > 500:
-                        body = body[:500]
-                    key_prefix = (self.api_key[:8] + "...") if self.api_key else "missing"
-                    debug = f"model={self.model}, api_url={self.api_url}, key_prefix={key_prefix}, key_len={len(self.api_key or '')}"
-                    raise RuntimeError(f"Groq API HTTP {status}: {body} | {debug}")
-                except requests.RequestException as e:
-                    raise RuntimeError(f"Groq API request failed: {e}")
+                        text = first.get("text") if isinstance(first, dict) else None
+                if not text:
+                    text = str(data)
+                class Resp:
+                    def __init__(self, c):
+                        self.content = c
+                return Resp(text)
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response is not None else "unknown"
+                body = ""
+                if e.response is not None:
+                    try:
+                        body = e.response.text
+                    except Exception:
+                        body = ""
+                body = (body or "").strip()
+                if len(body) > 500:
+                    body = body[:500]
+                key_prefix = (self.api_key[:8] + "...") if self.api_key else "missing"
+                debug = f"model={self.model}, api_url={self.api_url}, key_prefix={key_prefix}, key_len={len(self.api_key or '')}"
+                raise RuntimeError(f"Groq API HTTP {status}: {body} | {debug}")
+            except requests.RequestException as e:
+                raise RuntimeError(f"Groq API request failed: {e}")
 
-        llm = GroqChain(model=model, api_key=api_key, api_url=api_url, system_instructions=SYSTEM_INSTRUCTIONS)
-    elif ChatOllama:
-        model = get_setting("OLLAMA_MODEL", "llama3.2")
-        llm = ChatOllama(model=model, temperature=0.7)
-    else:
-        raise RuntimeError(
-            "No LLM available. Set LLM_PROVIDER=groq and GROQ_API_KEY in .env, or use Gemini with GOOGLE_API_KEY."
-        )
-
-    # For Groq we return the custom GroqChain directly (it exposes .invoke()).
-    # For other providers (Gemini/Ollama) return the LangChain prompt | llm runnable.
-    if provider == "groq":
-        return llm
-    return prompt | llm
+    return GroqChain(model=model, api_key=api_key, api_url=api_url, system_instructions=SYSTEM_INSTRUCTIONS)
 
 
 def invoke_chain(chain, input_dict):
-    """Invoke the chain. Retries on 429 (Gemini rate limit) only."""
-    provider = (get_setting("LLM_PROVIDER", "groq") or "groq").lower()
-    if provider == "gemini" and ChatGoogleGenerativeAI:
-        for attempt in range(3):
-            try:
-                return chain.invoke(input_dict)
-            except Exception as e:
-                if ("429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)) and attempt < 2:
-                    time.sleep(15)
-                    continue
-                raise
+    """Invoke the Groq chain."""
     return chain.invoke(input_dict)
 
 
@@ -737,37 +685,30 @@ def render_chat_app():
         chat_history = messages_to_langchain(history_for_prompt)
         chain = create_chain()
         try:
-            provider = (get_setting("LLM_PROVIDER", "groq") or "groq").lower()
-            if provider == "gemini" and not get_setting("GOOGLE_API_KEY"):
-                st.error("GOOGLE_API_KEY is not set. Add it to your .env file, or use LLM_PROVIDER=groq with GROQ_API_KEY set.")
-                st.stop()
             with st.spinner("Sukoon is thinking..."):
                 response = invoke_chain(chain, {"input": user_input, "chat_history": chat_history})
             assistant_text = response.content if hasattr(response, "content") else str(response)
             if not assistant_text or not str(assistant_text).strip():
                 assistant_text = "I'm sorry, I couldn't generate a response. Please try again."
         except Exception as e:
+            tb = traceback.format_exc()
             err_msg = str(e).lower()
-            if "429" in err_msg or "resource_exhausted" in err_msg:
+            if "429" in err_msg or "rate limit" in err_msg or "quota" in err_msg:
                 st.error(
-                    "Gemini rate limit reached. Switch to Groq for a hosted option: set LLM_PROVIDER=groq in .env and add GROQ_API_KEY."
+                    "Groq rate limit reached. Check your Groq usage limits and try again shortly."
                 )
             elif "401" in err_msg or "unauthorized" in err_msg:
                 st.error(
-                    "Groq auth failed (HTTP 401). Use a valid active GROQ_API_KEY, then fully restart Streamlit."
+                    "Authentication failed (HTTP 401). Check your API key and restart Streamlit."
                 )
-                with st.expander("Error details"):
-                    st.code(str(e)[:500])
             elif "connection" in err_msg or "refused" in err_msg or "groq" in err_msg or "groq api" in err_msg:
                 st.error(
-                    "Groq API connection failed. Ensure GROQ_API_KEY and GROQ_API_URL (if custom) are set in .env and reachable."
+                    "API connection failed. Ensure your provider credentials and URLs are correct and reachable."
                 )
-                with st.expander("Error details"):
-                    st.code(str(e)[:500])
             else:
-                st.error("Something went wrong. Check your setup and try again.")
-                with st.expander("Error details"):
-                    st.code(str(e)[:500])
+                st.error("Something went wrong. See details below.")
+            with st.expander("Error details"):
+                st.code(tb[:8000])
             # Remove user message so they can retry
             if messages:
                 messages.pop()
@@ -858,3 +799,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
