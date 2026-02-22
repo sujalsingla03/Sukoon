@@ -1,0 +1,6 @@
+.env
+.streamlit/secrets.toml
+sukoon.db
+__pycache__/
+*.pyc
+venv/

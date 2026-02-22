@@ -1,0 +1,14 @@
+# Local secrets and env
+.env
+.env.*
+!.env.example
+
+# Streamlit local secrets
+.streamlit/secrets.toml
+
+# Local DB / runtime artifacts
+*.db
+
+# Python cache
+__pycache__/
+*.py[cod]

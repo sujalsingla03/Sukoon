@@ -1,0 +1,8 @@
+# Sukoon theme (light, readable with custom CSS overlays)
+
+[theme]
+primaryColor = "#1f7a66"
+backgroundColor = "#f1f8f4"
+secondaryBackgroundColor = "#e8f3ef"
+textColor = "#173831"
+font = "sans serif"
